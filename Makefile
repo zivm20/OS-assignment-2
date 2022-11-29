@@ -1,7 +1,7 @@
 CXX=gcc
 CXXFLAGS= -Werror 
 
-all: mytee mync
+all: mytee mync myshell
 
 mytee: mytee.c
 	$(CXX) $(CXXFLAGS) $^ -o $@
@@ -9,6 +9,8 @@ mytee: mytee.c
 mync: mync.c
 	$(CXX) $(CXXFLAGS) $^ -o $@
 
+myshell: myshell.c
+	$(CXX) $(CXXFLAGS) $^ -o $@
 
 
 
@@ -21,4 +23,4 @@ mync: mync.c
 #valgrind --tool=memcheck -v --leak-check=full --show-leak-kinds=all  --error-exitcode=99 ./mync 2>&1 | { egrep "lost| at " || true; }
 #valgrind --tool=memcheck -v --leak-check=full --show-leak-kinds=all  --error-exitcode=99 ./mync 127.0.0.1 299934 2>&1 | { egrep "lost| at " || true; }
 clean:
-	rm -f *.o mytee mync
+	rm -f *.o mytee mync myshell
