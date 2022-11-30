@@ -5,6 +5,8 @@
 #include <unistd.h>
 #include <string.h>
 #include <dirent.h>
+#include <sys/wait.h>
+#include <stdint.h>
 
 int copy(const char* f1, const char* f2){
     int fd1;
@@ -51,7 +53,7 @@ char* dir_command(){
     
     while((dirElement = readdir(dir)) != NULL){
         size_t newSize = sizeof(char)*(1+outlen+strlen(dirElement->d_name));
-        printf("%ld\n",newSize);
+        
         if((out = (char*)realloc(out, newSize)) == NULL){
             closedir(dir);
             return NULL;
@@ -64,46 +66,127 @@ char* dir_command(){
     return out;
 }
 
-char* commandHandler(char* in){
-    char* command;
-    if((command = strtok(in, " ")) == NULL){
+void commandRunner(char* in){
+    
+    char command[256];
+    sscanf(in,"%s",command);
+    /*if (sscanf(in,"%s",command) == NULL){
         command = in;
     }
-    if(strcmp("DIR",command) == 0){
-        return dir_command();
+    */
+    
+    if (strcmp("DIR",command) == 0){
+        printf("%s",dir_command());
     }
     else if(strcmp("COPY",command) == 0){
-        char* f1;
-        char* f2;
+        char f1[256];
+        char f2[256];
+        sscanf(in,"%s %s %s",command, f1, f2);
         
-        if((f1 = strtok(NULL, " ")) == NULL){
-            return NULL;
-        }
-        if((f2 = strtok(NULL, " ")) == NULL){
-            return NULL;
-        }
         copy(f1,f2);
-        return NULL;
+        exit(1);
+    }
+    else{
+        char** newArgv;
+        int argc = 0;
+        char* arg = strtok(in," ");
+        char newCommand[266];
+        newArgv = (char**) malloc(sizeof(char*)*2);
+        sprintf(newCommand, "/usr/bin/%s",command);
+        newArgv[argc] = newCommand;
+        argc++;
+        while((arg = strtok(NULL, " "))){
+            
+            if((newArgv = realloc(newArgv, sizeof(char*)*(argc+2)))==NULL){
+                exit(-1);
+            }
+            /*
+            if((newArgv[argc] = realloc(newArgv, sizeof(char)*(strlen(arg))))==NULL){
+                exit(-1);
+            }*/
+            newArgv[argc] = arg;
+            //strcpy(newArgv[argc],arg);
+            argc++;
+        }
+        newArgv[argc] = NULL;
+        char* newEnv[] = {NULL};
+        execve(newCommand, newArgv, newEnv);
         
     }
 }
 
-int main(int argc, char* argv[]){
-    char *line = NULL;
-    size_t len = 0;
-    ssize_t read;
-    printf("shell: ");
-    while ((read = getline(&line, &len, stdin)) != -1) {
-        char* output = commandHandler(strtok(line,"\n"));
-        if(output != NULL){
-            printf("> %s",output);
-            free(output);    
-        }
+char* singleCommandHandler(char* fullCommand){
+   
+    int outputPipe[2];
+    
+    if (pipe(outputPipe) == -1) {
+        return NULL;
+    }
+    pid_t childId;
+    if((childId = fork())==-1){
+        return NULL;
+    }
+    if(childId == 0){
         
-        printf("\nshell: ");
+        char* out;
+        char buf;
+        
+        close(outputPipe[0]);
+
+       
+        dup2(outputPipe[1],STDOUT_FILENO);
+        close(outputPipe[1]);
+        commandRunner(fullCommand);
+        exit(0);
+    }
+    else{
+        char buf;
+        close(outputPipe[1]);
+        wait(NULL);
+        
+        char* out = (char*) malloc(sizeof(char));
+        size_t outLen = 0;
+        while (read(outputPipe[0], &buf, 1) > 0){
+            if((out = (char*)realloc(out, outLen+1)) == NULL){
+                close(outputPipe[0]);
+                perror("read pipe realloc");
+                exit(EXIT_FAILURE);
+            }
+            out[outLen] = buf;
+            outLen++;
+        }
+        close(outputPipe[0]);
+        if(outLen == 0){
+            free(out);
+            return NULL;
+        }
+        return out;
+        
+    }
+    return NULL;
+}
+
+int main(int argc, char* argv[]){
+    char *fullCommand = NULL;
+    size_t len = 0;
+    ssize_t readSize;
+    printf("shell: ");
+    
+    while ((readSize = getline(&fullCommand, &len, stdin)) != -1) {
+        char* output = "";
+        fullCommand = strtok(fullCommand,"\n");
+        
+        //output = singleCommandHandler(strcat(strcat(command," "),output));
+        output = singleCommandHandler(fullCommand);
+        if(output != NULL){
+            printf("> %s\n",output);
+            free(output);
+        }
+        printf("shell: ");
+        
     }
 
-    free(line);
+    free(fullCommand);
     return 1;
 }
 
