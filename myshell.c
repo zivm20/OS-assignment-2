@@ -175,9 +175,8 @@ char* singleCommandHandler(char* fullCommand,char* extraArg){
             outLen++;
         }
         close(outputPipe[0]);
-        //free(fullCommand);
+        
         if(outLen == 0){
-            //free(out);
             return NULL;
         }
         return out;
@@ -194,7 +193,7 @@ char* parseLine(char* line, char* extraArg){
     //printf("line: [%s], char: %d\n",line, line[0]);
     if(strlen(line) > 0 && (command = strtok_r(line,"|",&line))!=NULL){
         //printf("command: [%s], rest: [%s],\n", command, line);
-        //return parseLine(line,command,outputFD);
+        
         //printf("2 command: [%s], rest: [%s],\n", command, line);
         return parseLine(line,singleCommandHandler(command,extraArg));
     }
@@ -216,6 +215,8 @@ int main(int argc, char* argv[]){
         line = strtok_r(line,"\n",&line);
         char* tempLine = strdup(line);
         char* commands;
+        
+        //getting '<' char
         char* inputFile;
         commands = strtok_r(tempLine,"<",&tempLine);
         if((inputFile = strtok_r(tempLine," \n",&tempLine))!=NULL){
@@ -248,8 +249,8 @@ int main(int argc, char* argv[]){
             
             commands = strcat(commands,tempLine);
         }
-        //free(tempLine);
         
+        //getting '>' char
         tempLine = strdup(commands);
         commands = strtok_r(tempLine,">",&tempLine);
         char* outputFile;
