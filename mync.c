@@ -124,10 +124,12 @@ int main(int argc, char **argv) {
             clientAddressLen = sizeof(clientAddress);
             int clientSocket = accept(sock, (struct sockaddr *)&clientAddress, &clientAddressLen);
 
-        if (clientSocket == -1){
-            perror("Failed to accept client\n");
-            return -1;
-        }
+            if (clientSocket == -1){
+                perror("Failed to accept client\n");
+                return -1;
+            }
+            //receive the message from the client
+            printf("OUTPUT:");
             while(recv(clientSocket,&c,sizeof(char),0) > 0){
                 printf("%c",c);
             }

@@ -1,0 +1,1 @@
+myecho .gitattributes mytee  f2.txt ..  f1.txt myshell f4.txt f1.txt .gitignore README.md folder mync.c f2.txt myshell.c . Makefile mytee.c myecho.c .vscode .git mync 

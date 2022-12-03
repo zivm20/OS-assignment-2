@@ -7,17 +7,12 @@
 #include <dirent.h>
 #include <sys/wait.h>
 #include <stdint.h>
+#include <arpa/inet.h>
+#include <sys/socket.h> 
+#include <netinet/in.h>
+#include <netinet/tcp.h> 
 
 
-char** appendStr(char** arr, char* str, size_t* nArr, size_t* arrSize){
-    if(*nArr == *arrSize){
-        arr = (char**) realloc(arr,sizeof(char*)*(*arrSize+1));
-        *arrSize++;
-    }
-    arr[*nArr] = str;
-    *nArr++;
-    return arr;
-}
 
 int copy(const char* f1, const char* f2){
     int fd1;
@@ -49,40 +44,33 @@ int copy(const char* f1, const char* f2){
     write(fd2,content,fStat.st_size);
     close(fd2);
     free(content);
-
     return 1;
 }
 
-char* dir_command(){
+void dir_command(){
     DIR* dir;
     struct dirent* dirElement;
-    char* out = (char*) malloc(sizeof(char));
-    size_t outlen = 1; 
+    
     if((dir = opendir("./")) == NULL){
-        return NULL;
+        exit(-1);
     }
     
     while((dirElement = readdir(dir)) != NULL){
-        size_t newSize = sizeof(char)*(1+outlen+strlen(dirElement->d_name));
-        
-        if((out = (char*)realloc(out, newSize)) == NULL){
-            closedir(dir);
-            return NULL;
-        }
-        strcat(out, dirElement->d_name);
-        strcat(out," ");
-        outlen = newSize;
+       
+        printf("%s ",dirElement->d_name);
     }
+    printf("\n");
     closedir(dir);
-    return out;
+    
 }
 
 void commandRunner(char* fullCommand){
     char* command;
     command = strtok_r(fullCommand," ",&fullCommand);
-    //printf("running: %s\n",fullCommand);
+    
     if (strcmp("DIR",command) == 0){
-        printf("%s",dir_command());
+        dir_command();
+        exit(1);
     }
     else if(strcmp("COPY",command) == 0){
         char* f1;
@@ -108,9 +96,9 @@ void commandRunner(char* fullCommand){
         char* temp = strdup("/usr/bin/");
         temp = (char*) realloc(temp,sizeof(char)*(strlen(temp)+strlen(command)+1));
         command = strcat(temp,command);
-        //printf("command now is: %s\n",command);
+       
         newArgv[0] = command;
-        //printf("arg: %s, argc: %ld\n",newArgv[argc-1],argc);
+        
 
         while((arg = strtok_r(fullCommand," ",&fullCommand))){
             if((newArgv = realloc(newArgv, sizeof(char*)*(argc+1)))==NULL){
@@ -129,6 +117,7 @@ void commandRunner(char* fullCommand){
         newArgv[argc] = NULL;
         char* newEnv[] = {NULL};
         execve(command, newArgv, newEnv);
+        exit(1);
         
     }
 }
@@ -174,6 +163,13 @@ char* singleCommandHandler(char* fullCommand,char* extraArg){
             out[outLen] = buf;
             outLen++;
         }
+        if((out = (char*)realloc(out, outLen+1)) == NULL){
+            close(outputPipe[0]);
+            perror("read pipe realloc");
+            exit(EXIT_FAILURE);
+        }
+        out[outLen] = '\0';
+
         close(outputPipe[0]);
         
         if(outLen == 0){
@@ -185,27 +181,25 @@ char* singleCommandHandler(char* fullCommand,char* extraArg){
     return NULL;
 }
 
-
-char* parseLine(char* line, char* extraArg){
+char* pipeHandler(char* line, char* extraArg){
     char* command;
     size_t nCommands = 0;
     size_t commandsSize = 1;
-    //printf("line: [%s], char: %d\n",line, line[0]);
-    if(strlen(line) > 0 && (command = strtok_r(line,"|",&line))!=NULL){
-        //printf("command: [%s], rest: [%s],\n", command, line);
-        
-        //printf("2 command: [%s], rest: [%s],\n", command, line);
-        return parseLine(line,singleCommandHandler(command,extraArg));
+    
+    if((command = strtok_r(line,"|",&line))!=NULL){
+        return pipeHandler(line,singleCommandHandler(command,extraArg));
     }
     return extraArg;
 
 }
 
+
+
 int main(int argc, char* argv[]){
     char *line = NULL;
     size_t len = 0;
     ssize_t readSize;
-    printf("shell: ");
+    printf(">");
     
     
     while ((readSize = getline(&line, &len, stdin)) != -1) {
@@ -217,54 +211,161 @@ int main(int argc, char* argv[]){
         char* commands;
         
         //getting '<' char
-        char* inputFile;
-        commands = strtok_r(tempLine,"<",&tempLine);
-        if((inputFile = strtok_r(tempLine," \n",&tempLine))!=NULL){
-            int inFD = -1;
-            struct stat fStat;
-            if(stat(inputFile,&fStat)<0){
-                free(tempLine);
-                return -1;
+        if(strchr(tempLine,'<') != NULL){
+            char* inputFile;
+            commands = strtok_r(tempLine,"<",&tempLine);
+            if((inputFile = strtok_r(tempLine," \n",&tempLine))!=NULL){
+                int inFD = -1;
+                struct stat fStat;
+                if(stat(inputFile,&fStat)<0){
+                    free(tempLine);
+                    return -1;
+                }
+                if((inFD = open(inputFile,O_RDONLY))<0){
+                    free(tempLine);
+                    return -1;
+                }    
+                //st_size returns size of string without terminating char
+                if((extraInput = (char*) malloc(fStat.st_size+1)) == NULL){
+                    close(inFD);
+                    free(tempLine);
+                    return -1;
+                }
+                read(inFD,extraInput,fStat.st_size);
+                
+                //add terminating char
+                extraInput[fStat.st_size] = '\0';
+                close(inFD); 
+                
+                if((commands = (char*) realloc(commands,sizeof(char)*(strlen(commands)+strlen(tempLine)+1)))==NULL){
+                    free(tempLine);
+                    return -1;
+                }
+                commands = strcat(commands,tempLine);
+                tempLine = strdup(commands);
             }
-            if((inFD = open(inputFile,O_RDONLY))<0){
-                free(tempLine);
-                return -1;
-            }    
-            //st_size returns size of string without terminating char
-            if((extraInput = (char*) malloc(fStat.st_size+1)) == NULL){
-                close(inFD);
-                free(tempLine);
-                return -1;
+        }
+        else if(strchr(tempLine,'{') != NULL){
+            char* strPort;
+            commands = strtok_r(tempLine,"{",&tempLine);
+            if((strPort = strtok_r(tempLine," \n",&tempLine))!=NULL){
+                int port = atoi(strPort);
+                char* ip = "127.0.0.1";
+            
+                int sock = socket(AF_INET, SOCK_STREAM, 0);
+                if (sock == -1) {
+                    perror("socket\n");
+                    free(tempLine);
+                    return -1;
+                } 
+                int t = 1;
+                setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (void*) &t, sizeof(t));
+                
+                //bind socket
+                struct sockaddr_in server;
+                memset(&server,0,sizeof(server));
+                server.sin_port = htons(port);
+                if(inet_pton(AF_INET,ip,&server.sin_addr)<=0){
+                    perror("inet_pton\n");
+                    free(tempLine);
+                    return -1;
+                }
+                server.sin_family = AF_INET;
+                int connection = bind(sock,(struct sockaddr*)&server,sizeof(server));
+                if(connection == -1){
+                    perror("Binding failed!\n");
+                    free(tempLine);
+                    return -1;
+                }
+                printf("server started\n");
+                //start listening
+                if (listen(sock, 500) == -1){
+                    perror("Listen failed!\n");
+                    free(tempLine);
+                    return -1;
+                }
+
+                //accept first client
+                struct sockaddr_in clientAddress;
+                socklen_t clientAddressLen = sizeof(clientAddress);
+                memset(&clientAddress, 0, sizeof(clientAddress));
+                clientAddressLen = sizeof(clientAddress);
+                int clientSocket = accept(sock, (struct sockaddr *)&clientAddress, &clientAddressLen);
+                
+                extraInput = (char*) malloc(sizeof(char));
+                size_t eiLen = 0;
+                char buf;
+                while (recv(clientSocket,&buf,sizeof(char),0) > 0){
+                    if((extraInput = (char*)realloc(extraInput, eiLen+1)) == NULL){
+                        close(sock);
+                        free(tempLine);
+                        perror("extraInput realloc");
+                        exit(EXIT_FAILURE);
+                    }
+                    printf("%c(%d)",buf,buf);
+                    extraInput[eiLen] = buf;
+                    eiLen++;
+                }
+                close(sock);
+                if((commands = (char*) realloc(commands,sizeof(char)*(strlen(commands)+strlen(tempLine)+1)))==NULL){
+                    free(tempLine);
+                    return -1;
+                }
+                commands = strcat(commands,tempLine);
+                tempLine = strdup(commands);
+
             }
-            read(inFD,extraInput,fStat.st_size);
-            
-            //add terminating char
-            extraInput[fStat.st_size] = '\0';
-            close(inFD); 
-            
-            if((commands = (char*) realloc(commands,sizeof(char)*(strlen(commands)+strlen(tempLine)+1)))==NULL){
-                free(tempLine);
-                return -1;
-            }
-            
-            commands = strcat(commands,tempLine);
         }
         
-        //getting '>' char
-        tempLine = strdup(commands);
-        commands = strtok_r(tempLine,">",&tempLine);
-        char* outputFile;
-        if((outputFile = strtok_r(tempLine,">",&tempLine))!=NULL){
-            if((outFD = open(outputFile,O_WRONLY | O_TRUNC | O_CREAT,S_IRUSR | S_IWUSR))<0){
-                free(tempLine);
-                return -1;
+       
+        if(strchr(tempLine,'>') != NULL){
+            commands = strtok_r(tempLine,">",&tempLine);
+            char* outputFile;
+            if((outputFile = strtok_r(tempLine,">",&tempLine))!=NULL){
+                if((outFD = open(outputFile,O_WRONLY | O_TRUNC | O_CREAT,S_IRUSR | S_IWUSR))<0){
+                    printf("failed to open file");
+                    free(tempLine);
+                    return -1;
+                }
             }
         }
+        else if(strchr(tempLine,'}') != NULL){
+            char* ipAndPort;
+            commands = strtok_r(tempLine,"}",&tempLine);
+            if((ipAndPort = strtok_r(tempLine," \n",&tempLine))!=NULL){
+            
+                char* ip = strtok_r(ipAndPort,":",&ipAndPort);;
+                int port = atoi(ipAndPort);
 
-        output = parseLine(commands,extraInput);
-        //free(commands);
+                //server socket
+                struct sockaddr_in server;
+                memset(&server,0,sizeof(server));
+                server.sin_port = htons(port);
+                if(inet_pton(AF_INET,ip,&server.sin_addr)<=0){
+                    perror("inet_pton\n");
+                    return -1;
+                }
+                server.sin_family = AF_INET;
+                outFD = socket(AF_INET, SOCK_STREAM, 0);
+                if (outFD == -1) {
+                    perror("socket\n");
+                    return -1;
+                } 
+                int connection = connect(outFD,(struct sockaddr*)&server,sizeof(server));
+                if(connection == -1){
+                    perror("connection failed!\n");
+                }
+            }
+        }
+        else{
+            commands = tempLine;
+        }
+        
+        output = pipeHandler(commands,extraInput);
+        
         if(output != NULL){
             if(outFD != -1){
+                
                 write(outFD,output,strlen(output));
                 close(outFD);
             }
@@ -278,7 +379,10 @@ int main(int argc, char* argv[]){
                 close(outFD);
             }
         }
-        printf("shell: ");
+        printf("done\n");
+        //if(tempLine != NULL)
+            //free(tempLine);
+        printf(">");
         
     }
 
