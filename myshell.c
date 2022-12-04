@@ -52,9 +52,8 @@ void dir_command(){
     struct dirent* dirElement;
     
     if((dir = opendir("./")) == NULL){
-        exit(-1);
+        exit(EXIT_FAILURE);
     }
-    
     while((dirElement = readdir(dir)) != NULL){
        
         printf("%s ",dirElement->d_name);
@@ -66,8 +65,10 @@ void dir_command(){
 
 void commandRunner(char* fullCommand){
     char* command;
+    
     command = strtok_r(fullCommand," ",&fullCommand);
     
+
     if (strcmp("DIR",command) == 0){
         dir_command();
         exit(1);
@@ -76,17 +77,18 @@ void commandRunner(char* fullCommand){
         char* f1;
         char* f2;
         if((f1 = strtok_r(fullCommand," ",&fullCommand))==NULL){
-            perror("Usage: COPY <src> <dest>");
+            perror("Usage: COPY <src> <dest>\n");
             return;
         }
         if((f2 = strtok_r(fullCommand," ",&fullCommand))==NULL){
-            perror("Usage: COPY <src> <dest>");
+            perror("Usage: COPY <src> <dest>\n");
             return;
         }
         copy(f1,f2);
         exit(1);
     }
     else{
+        
         char** newArgv;
         size_t argc = 1;
         
@@ -102,76 +104,85 @@ void commandRunner(char* fullCommand){
 
         while((arg = strtok_r(fullCommand," ",&fullCommand))){
             if((newArgv = realloc(newArgv, sizeof(char*)*(argc+1)))==NULL){
-                perror("cannot realloc newArg");
-                exit(-1);
+                perror("cannot realloc newArg\n");
+                exit(EXIT_FAILURE);
             }
             newArgv[argc] = arg; 
             argc++;
-            //printf("arg: %s, argc: %ld\n",newArgv[argc-1],argc);
+            
         }
 
         if((newArgv = realloc(newArgv, sizeof(char*)*(argc+1)))==NULL){
-            perror("cannot realloc newArg");
-            exit(-1);
+            perror("cannot realloc newArg\n");
+            exit(EXIT_FAILURE);
         }
         newArgv[argc] = NULL;
         char* newEnv[] = {NULL};
         execve(command, newArgv, newEnv);
-        exit(1);
+        perror("command not found!\n");
+        exit(EXIT_FAILURE);
         
     }
 }
 
-char* singleCommandHandler(char* fullCommand,char* extraArg){
+char* singleCommandHandler(char* fullCommand,char* extraInput){
     
     int outputPipe[2];
     
     if (pipe(outputPipe) == -1) {
         return NULL;
     }
+    //create child process
     pid_t childId;
     if((childId = fork())==-1){
+        close(outputPipe[0]);
+        close(outputPipe[1]);
         return NULL;
     }
     if(childId == 0){
-        
         char* out;
         char buf;
+        //redirect stdin as pipe read side
         dup2(outputPipe[0],STDIN_FILENO);
         close(outputPipe[0]);
+        //redirect stdout as pipe write side
         dup2(outputPipe[1],STDOUT_FILENO);
         close(outputPipe[1]);
         commandRunner(fullCommand);
-        exit(0);
+        //should never reach here
+        exit(EXIT_FAILURE);
     }
     else{
         char buf;
-        
-        write(outputPipe[1],extraArg,strlen(extraArg));
-    
+        //write our desired stdin data
+        if(extraInput != NULL)
+            write(outputPipe[1],extraInput,strlen(extraInput));
         close(outputPipe[1]);
+        //wait for child process to terminate
         wait(NULL);
         
         char* out = (char*) malloc(sizeof(char));
         size_t outLen = 0;
+        //read the output from the child process
         while (read(outputPipe[0], &buf, 1) > 0){
             if((out = (char*)realloc(out, outLen+1)) == NULL){
                 close(outputPipe[0]);
-                perror("read pipe realloc");
+                perror("read pipe realloc\n");
                 exit(EXIT_FAILURE);
             }
             out[outLen] = buf;
             outLen++;
         }
+        //add terminating char
         if((out = (char*)realloc(out, outLen+1)) == NULL){
             close(outputPipe[0]);
-            perror("read pipe realloc");
+            perror("read pipe realloc\n");
             exit(EXIT_FAILURE);
         }
         out[outLen] = '\0';
 
         close(outputPipe[0]);
-        
+        //return child process output
         if(outLen == 0){
             return NULL;
         }
@@ -181,15 +192,18 @@ char* singleCommandHandler(char* fullCommand,char* extraArg){
     return NULL;
 }
 
-char* pipeHandler(char* line, char* extraArg){
+char* pipeHandler(char* line, char* extraInput){
     char* command;
     size_t nCommands = 0;
     size_t commandsSize = 1;
-    
+    //recursive calls for piping
     if((command = strtok_r(line,"|",&line))!=NULL){
-        return pipeHandler(line,singleCommandHandler(command,extraArg));
+        
+        return pipeHandler(line,singleCommandHandler(command,extraInput));
     }
-    return extraArg;
+    //command is null so we have ran a command, or gotten an empty command so we return
+    //our extra input
+    return extraInput;
 
 }
 
@@ -197,20 +211,21 @@ char* pipeHandler(char* line, char* extraArg){
 
 int main(int argc, char* argv[]){
     char *line = NULL;
+    char* tempLine;
     size_t len = 0;
     ssize_t readSize;
     printf(">");
     
     
     while ((readSize = getline(&line, &len, stdin)) != -1) {
-        char* output = "";
-        char* extraInput = "";
+        char* output = NULL;
+        char* extraInput = NULL;
         int outFD = -1;
         line = strtok_r(line,"\n",&line);
-        char* tempLine = strdup(line);
-        char* commands;
+        tempLine = strdup(line);
+        char* commands = NULL;
         
-        //getting '<' char
+        //file input
         if(strchr(tempLine,'<') != NULL){
             char* inputFile;
             commands = strtok_r(tempLine,"<",&tempLine);
@@ -236,7 +251,7 @@ int main(int argc, char* argv[]){
                 //add terminating char
                 extraInput[fStat.st_size] = '\0';
                 close(inFD); 
-                
+                //cleaning commands from input char
                 if((commands = (char*) realloc(commands,sizeof(char)*(strlen(commands)+strlen(tempLine)+1)))==NULL){
                     free(tempLine);
                     return -1;
@@ -245,6 +260,7 @@ int main(int argc, char* argv[]){
                 tempLine = strdup(commands);
             }
         }
+        //open server and get client output as input
         else if(strchr(tempLine,'{') != NULL){
             char* strPort;
             commands = strtok_r(tempLine,"{",&tempLine);
@@ -277,7 +293,7 @@ int main(int argc, char* argv[]){
                     free(tempLine);
                     return -1;
                 }
-                printf("server started\n");
+                
                 //start listening
                 if (listen(sock, 500) == -1){
                     perror("Listen failed!\n");
@@ -292,6 +308,7 @@ int main(int argc, char* argv[]){
                 clientAddressLen = sizeof(clientAddress);
                 int clientSocket = accept(sock, (struct sockaddr *)&clientAddress, &clientAddressLen);
                 
+                //reading input from socket
                 extraInput = (char*) malloc(sizeof(char));
                 size_t eiLen = 0;
                 char buf;
@@ -299,7 +316,7 @@ int main(int argc, char* argv[]){
                     if((extraInput = (char*)realloc(extraInput, eiLen+1)) == NULL){
                         close(sock);
                         free(tempLine);
-                        perror("extraInput realloc");
+                        perror("extraInput realloc\n");
                         exit(EXIT_FAILURE);
                     }
                     printf("%c(%d)",buf,buf);
@@ -307,6 +324,7 @@ int main(int argc, char* argv[]){
                     eiLen++;
                 }
                 close(sock);
+                //cleaning commands from input char
                 if((commands = (char*) realloc(commands,sizeof(char)*(strlen(commands)+strlen(tempLine)+1)))==NULL){
                     free(tempLine);
                     return -1;
@@ -317,11 +335,14 @@ int main(int argc, char* argv[]){
             }
         }
         
-       
+        //file output
         if(strchr(tempLine,'>') != NULL){
+            
             commands = strtok_r(tempLine,">",&tempLine);
+            
             char* outputFile;
             if((outputFile = strtok_r(tempLine,">",&tempLine))!=NULL){
+                //set outFD to our wanted output file name
                 if((outFD = open(outputFile,O_WRONLY | O_TRUNC | O_CREAT,S_IRUSR | S_IWUSR))<0){
                     printf("failed to open file");
                     free(tempLine);
@@ -329,6 +350,7 @@ int main(int argc, char* argv[]){
                 }
             }
         }
+        //output to server
         else if(strchr(tempLine,'}') != NULL){
             char* ipAndPort;
             commands = strtok_r(tempLine,"}",&tempLine);
@@ -346,6 +368,7 @@ int main(int argc, char* argv[]){
                     return -1;
                 }
                 server.sin_family = AF_INET;
+                //outFD will be the socket we wish to write stdout to
                 outFD = socket(AF_INET, SOCK_STREAM, 0);
                 if (outFD == -1) {
                     perror("socket\n");
@@ -357,13 +380,16 @@ int main(int argc, char* argv[]){
                 }
             }
         }
-        else{
+        
+        //if commands hasn't been initialized, init commands
+        if(commands == NULL){
             commands = tempLine;
         }
-        
+        //get the output of the program
         output = pipeHandler(commands,extraInput);
         
         if(output != NULL){
+            //write the output to the correct file descriptor
             if(outFD != -1){
                 
                 write(outFD,output,strlen(output));
@@ -372,20 +398,20 @@ int main(int argc, char* argv[]){
             else{
                 printf("%s",output);
             }
+           
             free(output);
+            free(extraInput);
         }
         else{
             if(outFD != -1){
                 close(outFD);
             }
         }
-        printf("done\n");
-        //if(tempLine != NULL)
-            //free(tempLine);
+        
         printf(">");
         
     }
-
+    
     free(line);
     return 1;
 }
