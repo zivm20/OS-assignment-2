@@ -233,11 +233,12 @@ int main(int argc, char* argv[]){
                 int inFD = -1;
                 struct stat fStat;
                 if(stat(inputFile,&fStat)<0){
-                    free(tempLine);
+                    perror("file not found!");
                     return -1;
                 }
                 if((inFD = open(inputFile,O_RDONLY))<0){
-                    free(tempLine);
+                    perror("file not found!");
+                    
                     return -1;
                 }    
                 //st_size returns size of string without terminating char
@@ -341,7 +342,7 @@ int main(int argc, char* argv[]){
             commands = strtok_r(tempLine,">",&tempLine);
             
             char* outputFile;
-            if((outputFile = strtok_r(tempLine,">",&tempLine))!=NULL){
+            if((outputFile = strtok_r(tempLine," \n",&tempLine))!=NULL){
                 //set outFD to our wanted output file name
                 if((outFD = open(outputFile,O_WRONLY | O_TRUNC | O_CREAT,S_IRUSR | S_IWUSR))<0){
                     printf("failed to open file");

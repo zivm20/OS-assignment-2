@@ -30,6 +30,7 @@ int send_data(const char* content, const int sock, const size_t len){
 int main(int argc, char **argv) {
     int sender = 1;
     int opt;
+    //get args
      while((opt=getopt(argc,argv, "l")) != -1){
         switch(opt){
             case 'l':

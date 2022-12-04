@@ -19,4 +19,4 @@ myshell: myshell.c
 	$(CXX) -shared -o $@ $<
 
 clean:
-	rm -f *.o mytee mync myshell myecho
+	rm -f *.o mytee mync myshell 

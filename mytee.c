@@ -33,8 +33,11 @@ int main(int argc, char* argv[]){
     ssize_t read;
 
     while ((read = getline(&line, &len, stdin)) != -1) {
+        
         printf("%s", line);
+        //append to each file in args
         for(int i=1; i<argc; i++){
+            //line num is 0 so will completly overwrite on first iteration, then append
             if(copy(line,argv[i],read,lineNum)<0){
                 free(line);
                 printf("unexpected error when copying");
